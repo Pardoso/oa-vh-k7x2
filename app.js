@@ -239,6 +239,35 @@ async function descargarPdf(o, btn) {
   btn.textContent = txt;
 }
 
+// Abre el PDF con otra aplicación del teléfono (visor de PDF, Drive, etc.) usando el menú "Compartir".
+// Si el navegador no lo permite, lo abre en una pestaña nueva.
+async function abrirEnOtraApp(o, btn) {
+  const txt = btn.textContent;
+  const nombre = (o.archivo || `${o.numero}.pdf`).replace(/[\\/:*?"<>|]/g, '-');
+  try {
+    btn.textContent = 'Preparando…';
+    const bytes = await obtenerPdf(o);
+    const archivo = new File([bytes], nombre, { type: 'application/pdf' });
+    if (navigator.canShare && navigator.canShare({ files: [archivo] })) {
+      await navigator.share({ files: [archivo], title: o.numero });
+    } else {
+      // Respaldo: abrir el PDF en una pestaña nueva (el navegador ofrecerá abrirlo con otra app).
+      const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    }
+  } catch (e) {
+    if (e && e.name !== 'AbortError') alert('No se pudo abrir el PDF (¿sin conexión y aún no descargado?).');
+  }
+  btn.textContent = txt;
+}
+
 // Con señal, baja en segundo plano los PDF de las órdenes recientes para poder verlos sin señal.
 const precargados = new Set();
 let precargando = false;
@@ -281,7 +310,7 @@ function pintarDetalle(numero, vista = $('detalle').dataset.vista || 'pdf') {
       </div>
       <div class="d-acciones">
         ${o.tienePdf || MODO_DEMO ? `<button class="btn" id="d-vista">${vista === 'pdf' ? 'Ver datos' : 'Ver PDF'}</button>` : ''}
-        ${vista === 'pdf' ? '<button class="btn" id="d-bajar">Descargar</button>' : ''}
+        ${vista === 'pdf' ? '<button class="btn" id="d-abrir">Abrir en otra app</button><button class="btn" id="d-bajar">Descargar</button>' : ''}
         <button class="btn" id="d-copiar">Copiar N°</button>
         <button class="btn pri" id="d-cerrar">Cerrar</button>
       </div>
@@ -310,6 +339,7 @@ function pintarDetalle(numero, vista = $('detalle').dataset.vista || 'pdf') {
   $('d-cerrar').onclick = cerrarDetalle;
   if ($('d-vista')) $('d-vista').onclick = () => pintarDetalle(numero, vista === 'pdf' ? 'datos' : 'pdf');
   if ($('d-bajar')) $('d-bajar').onclick = () => descargarPdf(o, $('d-bajar'));
+  if ($('d-abrir')) $('d-abrir').onclick = () => abrirEnOtraApp(o, $('d-abrir'));
   visorToken++;
   if (vista === 'pdf') {
     const body = document.querySelector('#detalle .d-body');

@@ -160,3 +160,10 @@ dialog::backdrop { background: rgba(0, 0, 0, .5); }
 .visor canvas { display: block; width: 100%; height: auto; background: #fff; margin: 0 0 8px; border: 1px solid var(--line); border-radius: 4px; }
 .visor p { padding: 20px 8px; margin: 0; }
 .d-acciones { flex-wrap: wrap; justify-content: flex-end; }
+
+@media (max-width: 560px) {
+  .d-head { flex-direction: column; align-items: stretch; gap: 8px; }
+  .d-head h2 { font-size: 20px; }
+  .d-acciones { justify-content: flex-start; }
+  .d-acciones .btn { padding: 8px 12px; font-size: 14px; }
+}

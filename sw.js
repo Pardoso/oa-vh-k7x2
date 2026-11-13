@@ -1,6 +1,6 @@
 // Guarda la app en el dispositivo para que abra sin internet.
 // Los datos de las órdenes los guarda Firestore aparte (IndexedDB).
-const VERSION = 'oa-v2';
+const VERSION = 'oa-v3';
 const FIREBASE = 'https://www.gstatic.com/firebasejs/10.12.2';
 const APP = ['./', 'index.html', 'styles.css', 'app.js', 'firebase-config.js', 'manifest.json', 'icon.svg', 'icon-192.png', 'icon-512.png', 'pdfjs/pdf.min.mjs', 'pdfjs/pdf.worker.min.mjs'];
 const LIBS = [`${FIREBASE}/firebase-app.js`, `${FIREBASE}/firebase-firestore.js`];

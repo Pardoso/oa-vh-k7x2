@@ -213,9 +213,10 @@ async function mostrarPdf(o, cont, token) {
     }
   } catch (e) {
     console.error(e);
-    if (e.message === 'no-existe') msg('El PDF de esta orden no está disponible en la nube. Toca <b>Ver datos</b>.');
-    else if (!navigator.onLine) msg('Sin conexión y este PDF aún no se ha descargado en este dispositivo. Toca <b>Ver datos</b> para ver la información guardada.');
-    else msg('No se pudo cargar el PDF. Toca <b>Ver datos</b> o vuelve a intentarlo.');
+    const tecnico = `<br><small>Detalle técnico: ${esc(e.message || e)}</small>`;
+    if (e.message === 'no-existe') msg('El PDF de esta orden no está disponible en la nube. Toca <b>Ver datos</b>.' + tecnico);
+    else if (!navigator.onLine) msg('Sin conexión y este PDF aún no se ha descargado en este dispositivo. Toca <b>Ver datos</b> para ver la información guardada.' + tecnico);
+    else msg('No se pudo cargar el PDF. Toca <b>Ver datos</b> o vuelve a intentarlo.' + tecnico);
   }
 }
 

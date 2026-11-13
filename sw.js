@@ -1,8 +1,8 @@
 // Guarda la app en el dispositivo para que abra sin internet.
 // Los datos de las órdenes los guarda Firestore aparte (IndexedDB).
-const VERSION = 'oa-v1';
+const VERSION = 'oa-v2';
 const FIREBASE = 'https://www.gstatic.com/firebasejs/10.12.2';
-const APP = ['./', 'index.html', 'styles.css', 'app.js', 'firebase-config.js', 'manifest.json', 'icon.svg', 'icon-192.png', 'icon-512.png'];
+const APP = ['./', 'index.html', 'styles.css', 'app.js', 'firebase-config.js', 'manifest.json', 'icon.svg', 'icon-192.png', 'icon-512.png', 'pdfjs/pdf.min.mjs', 'pdfjs/pdf.worker.min.mjs'];
 const LIBS = [`${FIREBASE}/firebase-app.js`, `${FIREBASE}/firebase-firestore.js`];
 
 self.addEventListener('install', (e) => {
@@ -17,7 +17,7 @@ self.addEventListener('install', (e) => {
 
 self.addEventListener('activate', (e) => {
   e.waitUntil(
-    caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== VERSION).map((k) => caches.delete(k)))).then(() => self.clients.claim())
+    caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== VERSION && k !== 'oa-pdfs').map((k) => caches.delete(k)))).then(() => self.clients.claim())
   );
 });
 

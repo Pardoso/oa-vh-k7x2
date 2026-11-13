@@ -150,12 +150,114 @@ function actualizarDatos(lista) {
   llenarSelect('f-grupo', uniq('grupo'), 'Toda especie');
   llenarSelect('f-tipo', uniq('tipo'), 'Todo tipo');
   render();
-  const abierta = $('detalle').open && $('detalle').dataset.n;
-  if (abierta) pintarDetalle(abierta);
+  // Si se está viendo el PDF no se vuelve a dibujar cada vez que llega un cambio de la base.
+  const abierta = $('detalle').open && $('detalle').dataset.vista === 'datos' && $('detalle').dataset.n;
+  if (abierta) pintarDetalle(abierta, 'datos');
+  precargarPdfs();
+}
+
+// ---------- PDF ----------
+let leerPdfRemoto = null; // se define al conectar (Firebase o demostración)
+let visorToken = 0;
+let pdfjsPromise = null;
+const claveCache = (o) => `${location.origin}/pdf/${o.numero}/${o.archivoModificado || 0}`;
+
+async function obtenerPdf(o) {
+  const clave = claveCache(o);
+  let cache = null;
+  try {
+    cache = await caches.open('oa-pdfs');
+    const r = await cache.match(clave);
+    if (r) return new Uint8Array(await r.arrayBuffer());
+  } catch {}
+  if (!leerPdfRemoto) throw new Error('sin-fuente');
+  const bytes = await leerPdfRemoto(o.numero);
+  if (!bytes) throw new Error('no-existe');
+  try {
+    if (cache) {
+      for (const k of await cache.keys()) if (k.url.includes(`/pdf/${o.numero}/`)) await cache.delete(k);
+      await cache.put(clave, new Response(bytes, { headers: { 'Content-Type': 'application/pdf' } }));
+    }
+  } catch {}
+  return bytes;
+}
+
+function cargarPdfjs() {
+  pdfjsPromise ||= import('./pdfjs/pdf.min.mjs').then((m) => {
+    m.GlobalWorkerOptions.workerSrc = new URL('./pdfjs/pdf.worker.min.mjs', import.meta.url).href;
+    return m;
+  });
+  return pdfjsPromise;
+}
+
+async function mostrarPdf(o, cont, token) {
+  const msg = (t) => token === visorToken && (cont.innerHTML = `<p class="sub">${t}</p>`);
+  try {
+    const bytes = await obtenerPdf(o);
+    const pdfjs = await cargarPdfjs();
+    const doc = await pdfjs.getDocument({ data: bytes.slice() }).promise;
+    if (token !== visorToken) return;
+    cont.innerHTML = '';
+    const ancho = cont.clientWidth || 360;
+    for (let n = 1; n <= doc.numPages; n++) {
+      const page = await doc.getPage(n);
+      const base = page.getViewport({ scale: 1 });
+      const vp = page.getViewport({ scale: (ancho / base.width) * Math.min(3, Math.max(2, window.devicePixelRatio || 1)) });
+      const canvas = document.createElement('canvas');
+      canvas.width = vp.width;
+      canvas.height = vp.height;
+      const ctx = canvas.getContext('2d');
+      if (token !== visorToken) return;
+      cont.appendChild(canvas);
+      await page.render({ canvas, canvasContext: ctx, viewport: vp }).promise;
+    }
+  } catch (e) {
+    console.error(e);
+    if (e.message === 'no-existe') msg('El PDF de esta orden no está disponible en la nube. Toca <b>Ver datos</b>.');
+    else if (!navigator.onLine) msg('Sin conexión y este PDF aún no se ha descargado en este dispositivo. Toca <b>Ver datos</b> para ver la información guardada.');
+    else msg('No se pudo cargar el PDF. Toca <b>Ver datos</b> o vuelve a intentarlo.');
+  }
+}
+
+async function descargarPdf(o, btn) {
+  const txt = btn.textContent;
+  try {
+    btn.textContent = 'Descargando…';
+    const bytes = await obtenerPdf(o);
+    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = o.archivo || `${o.numero}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  } catch {
+    alert('No se pudo descargar el PDF (¿sin conexión?).');
+  }
+  btn.textContent = txt;
+}
+
+// Con señal, baja en segundo plano los PDF de las órdenes recientes para poder verlos sin señal.
+const precargados = new Set();
+let precargando = false;
+async function precargarPdfs() {
+  if (precargando || MODO_DEMO || !navigator.onLine || !leerPdfRemoto) return;
+  precargando = true;
+  const desde = new Date();
+  desde.setDate(desde.getDate() - 30);
+  const pendientes = ordenes.filter((o) => o.tienePdf && o.fecha >= iso(desde) && !precargados.has(o.numero + o.archivoModificado)).slice(0, 80);
+  for (const o of pendientes) {
+    if (!navigator.onLine) break;
+    precargados.add(o.numero + o.archivoModificado);
+    try { await obtenerPdf(o); } catch {}
+    await new Promise((r) => setTimeout(r, 150));
+  }
+  precargando = false;
 }
 
 // ---------- Detalle ----------
-function pintarDetalle(numero) {
+function pintarDetalle(numero, vista = $('detalle').dataset.vista || 'pdf') {
   const o = ordenes.find((x) => x.numero === numero);
   if (!o) return false;
   const dato = (t, v) => (v || v === 0 ? `<div><span>${t}</span>${esc(v)}</div>` : '');
@@ -167,7 +269,9 @@ function pintarDetalle(numero) {
     .join('');
   const otras = (o.fechas || []).length > 1 ? o.fechas.map((f) => `${fechaCorta(f.fecha)} ${f.inicio || ''}`).join(' · ') : '';
   const cargada = o._creado ? new Date(o._creado).toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short' }) : '';
+  if (vista === 'pdf' && !o.tienePdf && !MODO_DEMO) vista = 'datos';
   $('detalle').dataset.n = numero;
+  $('detalle').dataset.vista = vista;
   $('detalle-contenido').innerHTML = `
     <div class="d-head">
       <div>
@@ -175,6 +279,8 @@ function pintarDetalle(numero) {
         <div class="sub">${esc(o.grupo)} · ${esc(o.tipo)}</div>
       </div>
       <div class="d-acciones">
+        ${o.tienePdf || MODO_DEMO ? `<button class="btn" id="d-vista">${vista === 'pdf' ? 'Ver datos' : 'Ver PDF'}</button>` : ''}
+        ${vista === 'pdf' ? '<button class="btn" id="d-bajar">Descargar</button>' : ''}
         <button class="btn" id="d-copiar">Copiar N°</button>
         <button class="btn pri" id="d-cerrar">Cerrar</button>
       </div>
@@ -201,6 +307,15 @@ function pintarDetalle(numero) {
       <div class="d-pie">${cargada ? `Cargada el ${esc(cargada)} · ` : ''}Archivo: ${esc(o.archivo || '')}</div>
     </div>`;
   $('d-cerrar').onclick = cerrarDetalle;
+  if ($('d-vista')) $('d-vista').onclick = () => pintarDetalle(numero, vista === 'pdf' ? 'datos' : 'pdf');
+  if ($('d-bajar')) $('d-bajar').onclick = () => descargarPdf(o, $('d-bajar'));
+  visorToken++;
+  if (vista === 'pdf') {
+    const body = document.querySelector('#detalle .d-body');
+    body.className = 'd-body visor';
+    body.innerHTML = '<p class="sub" id="visor-msg">Cargando PDF…</p>';
+    mostrarPdf(o, body, visorToken);
+  }
   $('d-copiar').onclick = async (e) => {
     try {
       await navigator.clipboard.writeText(o.numero);
@@ -212,12 +327,13 @@ function pintarDetalle(numero) {
   return true;
 }
 function abrirDetalle(numero) {
-  if (!pintarDetalle(numero)) return;
+  if (!pintarDetalle(numero, 'pdf')) return;
   $('detalle').showModal();
   $('detalle').scrollTop = 0;
   history.pushState({ detalle: numero }, '');
 }
 function cerrarDetalle() {
+  visorToken++;
   if (history.state?.detalle) history.back();
   else $('detalle').close();
 }
@@ -272,6 +388,7 @@ function estadoDesdeSnapshot(desdeCache) {
 const MODO_DEMO = new URLSearchParams(location.search).has('demo');
 
 async function iniciarDemo() {
+  leerPdfRemoto = async (n) => new Uint8Array(await (await fetch(`demo-pdfs/${n}.pdf`)).arrayBuffer());
   const r = await fetch('demo.json');
   actualizarDatos(await r.json());
   setEstado('Demostración', 'off', 'Datos de ejemplo, sin conexión a la base de datos');
@@ -322,7 +439,11 @@ async function iniciarFirebase() {
     $('btn-historial').hidden = true;
     escuchar();
   });
-  window.addEventListener('online', () => setEstado('Conectando…'));
+  leerPdfRemoto = async (n) => {
+    const snap = await fs.getDoc(fs.doc(db, 'pdfs', n));
+    return snap.exists() ? snap.data().data.toUint8Array() : null;
+  };
+  window.addEventListener('online', () => { setEstado('Conectando…'); precargarPdfs(); });
   window.addEventListener('offline', () => estadoDesdeSnapshot(true));
 }
 

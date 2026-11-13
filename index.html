@@ -15,7 +15,7 @@
   <header class="top">
     <div class="top-row">
       <h1>Órdenes de aplicación</h1>
-      <span id="estado" class="pill" title="">Cargando…</span>
+      <span class="top-der"><span id="estado" class="pill" title="">Cargando…</span><button id="btn-salir" class="pill salir" hidden>Salir</button></span>
     </div>
     <div class="buscar">
       <input id="q" type="search" inputmode="search" autocomplete="off" spellcheck="false"
@@ -62,6 +62,19 @@
   <dialog id="detalle" aria-labelledby="d-titulo">
     <div id="detalle-contenido"></div>
   </dialog>
+
+  <div id="login" class="login" hidden>
+    <form id="login-form" class="login-panel" autocomplete="on">
+      <h2>Órdenes de aplicación</h2>
+      <p>Escribe la clave de acceso.</p>
+      <input type="email" name="username" autocomplete="username" value="acceso" hidden readonly>
+      <input id="login-clave" name="password" type="password" autocomplete="current-password" placeholder="Clave" aria-label="Clave de acceso" required>
+      <label class="ver"><input id="login-ver" type="checkbox"> Mostrar clave</label>
+      <button id="login-entrar" class="btn pri" type="submit">Entrar</button>
+      <p id="login-error" class="login-error" role="alert"></p>
+      <p class="sub">Solo la primera vez en cada dispositivo. Después queda guardada.</p>
+    </form>
+  </div>
 
   <script type="module" src="app.js"></script>
 </body>

@@ -1,7 +1,11 @@
 // Inventario de órdenes de aplicación — app de solo lectura.
 // Los datos llegan en tiempo real desde Firestore y quedan guardados en el dispositivo,
 // así que sin señal se sigue viendo lo último que se alcanzó a descargar.
-import { firebaseConfig } from './firebase-config.js';
+import * as cfg from './firebase-config.js';
+
+const firebaseConfig = cfg.firebaseConfig;
+// Correo interno de la cuenta compartida; la persona solo escribe la clave.
+const ACCESO_EMAIL = cfg.accesoEmail || 'acceso@oa-inventario.web.app';
 
 const FIREBASE = 'https://www.gstatic.com/firebasejs/10.12.2';
 const COLECCION = 'ordenes';
@@ -426,7 +430,11 @@ async function iniciarDemo() {
 }
 
 async function iniciarFirebase() {
-  const [{ initializeApp }, fs] = await Promise.all([import(`${FIREBASE}/firebase-app.js`), import(`${FIREBASE}/firebase-firestore.js`)]);
+  const [{ initializeApp }, fs, au] = await Promise.all([
+    import(`${FIREBASE}/firebase-app.js`),
+    import(`${FIREBASE}/firebase-firestore.js`),
+    import(`${FIREBASE}/firebase-auth.js`),
+  ]);
   const app = initializeApp(firebaseConfig);
   let db;
   try {
@@ -458,13 +466,66 @@ async function iniciarFirebase() {
         setEstado('Error', 'err');
         aviso(
           err.code === 'permission-denied'
-            ? 'La base de datos no permite leer. Revisa que las reglas de Firestore estén publicadas (Paso 4 del LEEME).'
+            ? 'La base de datos no permite leer. Cierra sesión y vuelve a entrar; si sigue igual, revisa que las reglas de Firestore estén publicadas (LEEME, Paso 5).'
             : `No se pudieron cargar las órdenes: ${esc(err.message)}`
         );
       }
     );
   }
-  escuchar();
+  // ---- Acceso con clave compartida ----
+  // La sesión queda guardada en el dispositivo (también sin conexión). Sin sesión no se pide nada a la base.
+  const auth = au.getAuth(app);
+  let escuchando = false;
+  au.onAuthStateChanged(auth, (u) => {
+    if (u) {
+      $('login').hidden = true;
+      $('btn-salir').hidden = false;
+      if (!escuchando) {
+        escuchando = true;
+        escuchar();
+      }
+    } else {
+      cancelarEscucha?.();
+      cancelarEscucha = null;
+      escuchando = false;
+      precargados.clear();
+      actualizarDatos([]);
+      if ($('detalle').open) $('detalle').close();
+      $('btn-salir').hidden = true;
+      setEstado('Protegida', 'off');
+      $('login').hidden = false;
+      $('login-clave').value = '';
+      setTimeout(() => $('login-clave').focus(), 50);
+    }
+  });
+  $('login-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = $('login-entrar');
+    const err = $('login-error');
+    err.textContent = '';
+    btn.disabled = true;
+    btn.textContent = 'Entrando…';
+    try {
+      await au.signInWithEmailAndPassword(auth, ACCESO_EMAIL, $('login-clave').value);
+    } catch (ex) {
+      const c = ex.code || '';
+      err.textContent = /invalid-credential|wrong-password|user-not-found|invalid-email/.test(c)
+        ? 'Clave incorrecta.'
+        : c === 'auth/too-many-requests'
+        ? 'Demasiados intentos. Espera unos minutos y vuelve a probar.'
+        : c === 'auth/network-request-failed'
+        ? 'Sin conexión. La primera vez en cada dispositivo necesitas internet para entrar.'
+        : c === 'auth/operation-not-allowed'
+        ? 'El acceso con correo y contraseña no está activado en Firebase (ver LEEME, Paso 4).'
+        : `No se pudo entrar: ${ex.message}`;
+    }
+    btn.disabled = false;
+    btn.textContent = 'Entrar';
+  });
+  $('login-ver').addEventListener('change', (e) => ($('login-clave').type = e.target.checked ? 'text' : 'password'));
+  $('btn-salir').addEventListener('click', () => {
+    if (confirm('¿Cerrar sesión en este dispositivo? Tendrás que escribir la clave otra vez.')) au.signOut(auth);
+  });
   $('btn-historial').addEventListener('click', () => {
     historialCompleto = true;
     $('btn-historial').hidden = true;

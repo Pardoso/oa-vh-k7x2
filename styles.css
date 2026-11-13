@@ -167,3 +167,25 @@ dialog::backdrop { background: rgba(0, 0, 0, .5); }
   .d-acciones { justify-content: flex-start; }
   .d-acciones .btn { padding: 8px 12px; font-size: 14px; }
 }
+
+.top-der { display: flex; align-items: center; gap: 8px; }
+.salir { border: 0; font: inherit; font-size: 12px; cursor: pointer; }
+.login {
+  position: fixed; inset: 0; z-index: 50; background: var(--bg);
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+}
+.login[hidden] { display: none; }
+.login-panel {
+  width: min(380px, 100%); background: var(--panel); border: 1px solid var(--line);
+  border-radius: 14px; padding: 22px 20px; box-shadow: var(--shadow);
+  display: flex; flex-direction: column; gap: 12px;
+}
+.login-panel h2 { margin: 0; font-size: 20px; }
+.login-panel p { margin: 0; color: var(--muted); }
+.login-panel input[type=password], .login-panel input[type=text] {
+  font-size: 18px; padding: 12px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--bg); color: var(--text); width: 100%;
+}
+.login-panel .ver { font-size: 14px; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+.login-panel .btn.pri { padding: 12px; font-size: 16px; }
+.login-error { color: var(--warn-ink) !important; min-height: 1.2em; }

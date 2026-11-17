@@ -189,3 +189,5 @@ dialog::backdrop { background: rgba(0, 0, 0, .5); }
 .login-panel .ver { font-size: 14px; color: var(--muted); display: flex; align-items: center; gap: 8px; }
 .login-panel .btn.pri { padding: 12px; font-size: 16px; }
 .login-error { color: var(--warn-ink) !important; min-height: 1.2em; }
+
+.chip.sin { background: var(--warn-bg); color: var(--warn-ink); font-weight: 600; }

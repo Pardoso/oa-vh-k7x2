@@ -21,6 +21,7 @@ const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0
 const hoyISO = () => iso(new Date());
 const DIAS = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
 function fechaCorta(f) {
+  if (!f) return 'Sin fecha';
   const [y, m, d] = f.split('-').map(Number);
   return `${DIAS[new Date(y, m - 1, d).getDay()]} ${String(d).padStart(2, '0')}-${String(m).padStart(2, '0')}-${y}`;
 }
@@ -30,13 +31,27 @@ function diasHasta(f) {
   return Math.round((new Date(y, m - 1, d) - new Date(h.getFullYear(), h.getMonth(), h.getDate())) / 86400000);
 }
 function relativo(f) {
+  if (!f) return 'Sin fecha';
   const n = diasHasta(f);
   if (n === 0) return 'Hoy';
   if (n === 1) return 'Mañana';
   if (n === -1) return 'Ayer';
   return n > 0 ? `En ${n} días` : `Hace ${-n} días`;
 }
-const claseFecha = (f) => (diasHasta(f) === 0 ? 'hoy' : diasHasta(f) > 0 ? 'fut' : '');
+const claseFecha = (f) => (!f ? 'sin' : diasHasta(f) === 0 ? 'hoy' : diasHasta(f) > 0 ? 'fut' : '');
+const finDe = (o) => o.fechaFin || o.fecha || '';
+const ddmmyyyy = (f) => f.split('-').reverse().join('-');
+// Texto de la fecha de una orden: "Sin fecha", "lun 16-11-2026" o un rango "01-12-2026 → 06-12-2026".
+const textoFecha = (o) => (!o.fecha ? '' : o.fechaFin && o.fechaFin !== o.fecha ? `${ddmmyyyy(o.fecha)} → ${ddmmyyyy(o.fechaFin)}` : fechaCorta(o.fecha));
+// Etiqueta de estado: Sin fecha / En curso (si hoy cae dentro del rango) / En 3 días / Ayer…
+function estadoFecha(o) {
+  if (!o.fecha) return { texto: 'Sin fecha', clase: 'sin' };
+  const hoy = hoyISO();
+  if (o.fechaFin && o.fecha <= hoy && hoy <= o.fechaFin) return { texto: 'En curso', clase: 'hoy' };
+  if (o.fechaFin && o.fecha > hoy) return { texto: relativo(o.fecha), clase: 'fut' };
+  if (o.fechaFin && o.fechaFin < hoy) return { texto: `Terminó ${relativo(o.fechaFin).toLowerCase()}`, clase: '' };
+  return { texto: relativo(o.fecha), clase: claseFecha(o.fecha) };
+}
 const millis = (t) => (t == null ? 0 : typeof t === 'number' ? t : t.toMillis ? t.toMillis() : t.seconds ? t.seconds * 1000 : 0);
 
 // ---------- Estado ----------
@@ -49,7 +64,7 @@ function preparar(o) {
   o._texto = norm(
     [
       o.numero, o.numeroInt, o.grupo, o.especie, o.etiqueta, o.variedad, o.tipo, o.objetivo,
-      o.fecha, o.fecha?.split('-').reverse().join('-'), o.aplicador, o.responsable, o.maquinaria, o.tractor,
+      o.fecha || 'sin fecha', o.fecha ? ddmmyyyy(o.fecha) : '', o.fechaFin ? ddmmyyyy(o.fechaFin) : '', o.aplicador, o.responsable, o.maquinaria, o.tractor,
       ...(o.productos || []).flatMap((p) => [p.nombre, p.ingrediente, p.funcion, p.codigo]),
       ...(o.cuarteles || []).flatMap((c) => [c.nombre, c.codigo, c.variedad]),
     ].join(' ')
@@ -77,17 +92,24 @@ function filtradas() {
   let r = ordenes.filter((o) => {
     if (grupo && o.grupo !== grupo) return false;
     if (tipo && o.tipo !== tipo) return false;
-    if (cuando === 'hoy' && o.fecha !== hoy) return false;
-    if (cuando === 'prox' && o.fecha < hoy) return false;
-    if (cuando === 'pas' && o.fecha >= hoy) return false;
-    if (cuando === 'sem' && (o.fecha < inicioSemana || o.fecha > finSemana)) return false;
+    if (cuando === 'sin') {
+      if (o.fecha) return false;
+    } else if (cuando) {
+      if (!o.fecha) return false; // las órdenes sin fecha solo salen en "Todas" y en "Sin fecha"
+      const fin = finDe(o);
+      if (cuando === 'hoy' && !(o.fecha <= hoy && hoy <= fin)) return false;
+      if (cuando === 'prox' && fin < hoy) return false;
+      if (cuando === 'pas' && fin >= hoy) return false;
+      if (cuando === 'sem' && (fin < inicioSemana || o.fecha > finSemana)) return false;
+    }
     return tokens.every((t) => o._texto.includes(t));
   });
   const orden = $('f-orden').value;
   const porNumero = (a, b) => (b.numeroInt || 0) - (a.numeroInt || 0);
   if (orden === 'numero') r.sort(porNumero);
   else if (orden === 'creado') r.sort((a, b) => b._creado - a._creado || porNumero(a, b));
-  else r.sort((a, b) => b.fecha.localeCompare(a.fecha) || porNumero(a, b));
+  // Primero las que aún no tienen fecha (son las que esperan al supervisor), luego por fecha.
+  else r.sort((a, b) => (a.fecha ? 1 : 0) - (b.fecha ? 1 : 0) || (b.fecha || '').localeCompare(a.fecha || '') || porNumero(a, b));
   return r;
 }
 
@@ -109,17 +131,18 @@ function render() {
   for (const o of visibles) {
     if (agrupar && o.fecha !== ultima) {
       ultima = o.fecha;
-      const titulo = `${fechaCorta(o.fecha)} · ${relativo(o.fecha)}`;
+      const titulo = o.fecha ? `${fechaCorta(o.fecha)} · ${relativo(o.fecha)}` : 'Sin fecha de aplicación (aún por asignar)';
       filas += `<tr class="sep"><td colspan="7">${esc(titulo)}</td></tr>`;
       tarjetas += `<div class="sep-t">${esc(titulo)}</div>`;
     }
     const prods = (o.productos || []).map((p) => p.nombre).join(', ');
     const cuart = (o.cuarteles || []).map((c) => c.nombre);
     const cuartTxt = cuart.length > 2 ? `${cuart.slice(0, 2).join(', ')} +${cuart.length - 2}` : cuart.join(', ');
-    const chip = `<span class="chip ${claseFecha(o.fecha)}">${esc(relativo(o.fecha))}</span>`;
+    const ef = estadoFecha(o);
+    const chip = `<span class="chip ${ef.clase}">${esc(ef.texto)}</span>`;
     filas += `<tr tabindex="0" data-n="${esc(o.numero)}">
       <td class="n-orden">${esc(o.numero)}</td>
-      <td class="fecha">${esc(fechaCorta(o.fecha))}${o.horaInicio ? ` <span class="sub">${esc(o.horaInicio)}</span>` : ''}<br>${chip}</td>
+      <td class="fecha">${esc(textoFecha(o))}${o.horaInicio ? ` <span class="sub">${esc(o.horaInicio)}</span>` : ''}${o.fecha ? '<br>' : ''}${chip}</td>
       <td>${esc(o.grupo)}<div class="sub">${esc(o.variedad || '')}</div></td>
       <td>${esc(o.tipo)}</td>
       <td>${esc(prods)}</td>
@@ -129,7 +152,7 @@ function render() {
     tarjetas += `<button class="tarjeta" data-n="${esc(o.numero)}">
       <div class="t-top"><span class="n-orden">${esc(o.numero)}</span>${chip}</div>
       <div class="t-prod">${esc(prods)}</div>
-      <div class="t-meta">${esc(o.grupo)} · ${esc(o.tipo)} · ${esc(fechaCorta(o.fecha))}${o.horaInicio ? ' ' + esc(o.horaInicio) : ''}</div>
+      <div class="t-meta">${[esc(o.grupo), esc(o.tipo), o.fecha ? esc(textoFecha(o)) + (o.horaInicio ? ' ' + esc(o.horaInicio) : '') : ''].filter(Boolean).join(' · ')}</div>
       <div class="t-meta">${esc(cuartTxt)}${o.superficieHa ? ` · ${fmtNum(o.superficieHa)} ha` : ''}</div>
     </button>`;
   }
@@ -280,7 +303,7 @@ async function precargarPdfs() {
   precargando = true;
   const desde = new Date();
   desde.setDate(desde.getDate() - 30);
-  const pendientes = ordenes.filter((o) => o.tienePdf && o.fecha >= iso(desde) && !precargados.has(o.numero + o.archivoModificado)).slice(0, 80);
+  const pendientes = ordenes.filter((o) => o.tienePdf && (o.fecha || o.creadoDia || '9999') >= iso(desde) && !precargados.has(o.numero + o.archivoModificado)).slice(0, 80);
   for (const o of pendientes) {
     if (!navigator.onLine) break;
     precargados.add(o.numero + o.archivoModificado);
@@ -295,11 +318,13 @@ function pintarDetalle(numero, vista = $('detalle').dataset.vista || 'pdf') {
   const o = ordenes.find((x) => x.numero === numero);
   if (!o) return false;
   const dato = (t, v) => (v || v === 0 ? `<div><span>${t}</span>${esc(v)}</div>` : '');
+  const hayExtra = (o.productos || []).some((p) => p.funcion || p.carencia || p.reingreso);
   const prods = (o.productos || [])
-    .map((p) => `<tr><td><b>${esc(p.nombre)}</b><div class="sub">${esc(p.ingrediente)}</div></td><td>${esc(p.dosis)}</td><td>${esc(p.consumo)}</td><td>${esc(p.funcion)}</td><td>${esc(p.carencia)}</td><td>${esc(p.reingreso)}</td></tr>`)
+    .map((p) => `<tr><td><b>${esc(p.nombre)}</b><div class="sub">${esc(p.ingrediente)}</div></td><td>${esc(p.dosis)}</td><td>${esc(p.consumo)}</td>${hayExtra ? `<td>${esc(p.funcion)}</td><td>${esc(p.carencia)}</td><td>${esc(p.reingreso)}</td>` : ''}</tr>`)
     .join('');
+  const hayAgua = (o.cuarteles || []).some((c) => c.agua);
   const cuart = (o.cuarteles || [])
-    .map((c) => `<tr><td><b>${esc(c.nombre)}</b><div class="sub">${esc(c.codigo)}</div></td><td>${esc(c.variedad)}</td><td class="num">${fmtNum(c.ha)}</td><td class="num">${c.agua ? fmtNum(c.agua) : ''}</td><td class="sub">${(c.productos || []).map((p) => `${esc(p.nombre)}: ${fmtNum(p.cantidad)} ${esc(p.unidad)}`).join('<br>')}</td></tr>`)
+    .map((c) => `<tr><td><b>${esc(c.nombre)}</b><div class="sub">${esc(c.codigo)}</div></td><td>${esc(c.variedad)}</td><td class="num">${fmtNum(c.ha)}</td>${hayAgua ? `<td class="num">${c.agua ? fmtNum(c.agua) : ''}</td>` : ''}<td class="sub">${(c.productos || []).map((p) => `${esc(p.nombre)}: ${fmtNum(p.cantidad)} ${esc(p.unidad)}`).join('<br>')}</td></tr>`)
     .join('');
   const otras = (o.fechas || []).length > 1 ? o.fechas.map((f) => `${fechaCorta(f.fecha)} ${f.inicio || ''}`).join(' · ') : '';
   const cargada = o._creado ? new Date(o._creado).toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short' }) : '';
@@ -321,7 +346,7 @@ function pintarDetalle(numero, vista = $('detalle').dataset.vista || 'pdf') {
     </div>
     <div class="d-body">
       <div class="d-grid">
-        <div><span>Fecha de aplicación</span>${esc(fechaCorta(o.fecha))} ${esc(o.horaInicio || '')} <span class="chip ${claseFecha(o.fecha)}" style="display:inline-block">${esc(relativo(o.fecha))}</span></div>
+        <div><span>${o.fechaFin ? 'Fechas de la orden (inicio → fin)' : 'Fecha de aplicación'}</span>${o.fecha ? esc(textoFecha(o)) + ' ' + esc(o.horaInicio || '') + ' ' : ''}<span class="chip ${estadoFecha(o).clase}" style="display:inline-block">${esc(estadoFecha(o).texto)}</span>${o.fecha ? '' : '<div class="sub">La completa el supervisor al aplicar. Cuando descargues la orden actualizada, aparecerá aquí.</div>'}</div>
         ${dato('Otras fechas', otras)}
         ${dato('Especie', [o.especie, o.variedad].filter(Boolean).join(' · '))}
         ${dato('Objetivo', o.objetivo)}
@@ -329,15 +354,16 @@ function pintarDetalle(numero, vista = $('detalle').dataset.vista || 'pdf') {
         ${dato('Mojamiento', o.mojamiento)}
         ${dato('Consumo de agua', o.consumoAgua)}
         ${dato('Estado fenológico', o.estadoFenologico)}
-        ${dato('Aplicador', o.aplicador)}
-        ${dato('Tractor / equipo', [o.tractor, o.maquinaria, o.capacidad].filter(Boolean).join(' · '))}
+        ${dato(o.formato === 'riego' ? 'Casetero' : 'Aplicador', o.aplicador)}
+        ${dato(o.formato === 'riego' ? 'Equipo / caseta' : 'Tractor / equipo', [o.tractor, o.maquinaria, o.capacidad].filter(Boolean).join(' · '))}
+        ${dato('Equipamiento', o.equipamiento)}
         ${dato('Responsable', o.responsable)}
         ${dato('Dosificador', o.dosificador)}
       </div>
       <h3>Productos</h3>
-      <div class="d-tabla-wrap"><table class="d-tabla"><thead><tr><th>Producto</th><th>Dosis</th><th>Consumo</th><th>Función</th><th>Carencia</th><th>Reingreso</th></tr></thead><tbody>${prods}</tbody></table></div>
+      <div class="d-tabla-wrap"><table class="d-tabla"><thead><tr><th>Producto</th><th>Dosis</th><th>Consumo</th>${hayExtra ? '<th>Función</th><th>Carencia</th><th>Reingreso</th>' : ''}</tr></thead><tbody>${prods}</tbody></table></div>
       <h3>Cuarteles (${(o.cuarteles || []).length})</h3>
-      <div class="d-tabla-wrap"><table class="d-tabla"><thead><tr><th>Cuartel</th><th>Variedad</th><th class="num">ha</th><th class="num">Agua (lt)</th><th>Por cuartel</th></tr></thead><tbody>${cuart}</tbody></table></div>
+      <div class="d-tabla-wrap"><table class="d-tabla"><thead><tr><th>Cuartel</th><th>Variedad</th><th class="num">ha</th>${hayAgua ? '<th class="num">Agua (lt)</th>' : ''}<th>Por cuartel</th></tr></thead><tbody>${cuart}</tbody></table></div>
       <div class="d-pie">${cargada ? `Cargada el ${esc(cargada)} · ` : ''}Archivo: ${esc(o.archivo || '')}</div>
     </div>`;
   $('d-cerrar').onclick = cerrarDetalle;
@@ -448,11 +474,11 @@ async function iniciarFirebase() {
     cancelarEscucha?.();
     const col = fs.collection(db, COLECCION);
     let q;
-    if (historialCompleto) q = fs.query(col, fs.orderBy('fecha', 'desc'));
+    if (historialCompleto) q = fs.query(col);
     else {
       const d = new Date();
       d.setDate(d.getDate() - DIAS_RECIENTES);
-      q = fs.query(col, fs.where('fecha', '>=', iso(d)), fs.orderBy('fecha', 'desc'));
+      q = fs.query(col, fs.where('creadoDia', '>=', iso(d)));
     }
     cancelarEscucha = fs.onSnapshot(
       q,
